@@ -23,7 +23,7 @@ For example:
 The Docker image accepts the following parameters:
 * One of `MYSQL_ROOT_PASSWORD`, `MYSQL_ALLOW_EMPTY_PASSWORD` or `MYSQL_RANDOM_ROOT_PASSWORD` must be defined
 * The image will create the user `xtrabackup@localhost` for the XtraBackup SST method. If you want to use a password for the `xtrabackup` user, set `XTRABACKUP_PASSWORD`. 
-* If you want to use the discovery service (right now only `etcd` is supported), set the address to `DISCOVERY_SERVICE`. The image will automatically find a running cluser by `CLUSTER_NAME` and join to the existing cluster (or start a new one).
+* If you want to use swarm service, set the service name to `SWARM_SERVICE`. The image will automatically find a running cluser by `CLUSTER_NAME` and join to the existing cluster (or start a new one).
 * If you want to start without the discovery service, use the `CLUSTER_JOIN` variable. Empty variables will start a new cluster, To join an existing cluster, set `CLUSTER_JOIN` to the list of IP addresses running cluster nodes.
 
 
@@ -32,89 +32,33 @@ Discovery service
 
 The cluster will try to register itself in the discovery service, so that new nodes or ProxySQL can easily find running nodes.
 
-Assuming you have the variable `ETCD_HOST` set to `IP:PORT` of the running etcd (e.g., `export ETCD_HOST=10.20.2.4:2379`), you can explore the current settings by  using
-`curl http://$ETCD_HOST/v2/keys/pxc-cluster/$CLUSTER_NAME/?recursive=true  | jq`.
+The image will look for IPs of sql-cluster and remove his own IP for the join parameter of galera cluster.
 
-Example output:
-```
-{
-  "action": "get",
-  "node": {
-    "key": "/pxc-cluster/cluster4",
-    "dir": true,
-    "nodes": [
-      {
-        "key": "/pxc-cluster/cluster4/10.0.5.2",
-        "dir": true,
-        "nodes": [
-          {
-            "key": "/pxc-cluster/cluster4/10.0.5.2/ipaddr",
-            "value": "10.0.5.2",
-            "modifiedIndex": 19600,
-            "createdIndex": 19600
-          },
-          {
-            "key": "/pxc-cluster/cluster4/10.0.5.2/hostname",
-            "value": "2af0a75ce0cb",
-            "modifiedIndex": 19601,
-            "createdIndex": 19601
-          }
-        ],
-        "modifiedIndex": 19600,
-        "createdIndex": 19600
-      },
-      {
-        "key": "/pxc-cluster/cluster4/10.0.5.3",
-        "dir": true,
-        "nodes": [
-          {
-            "key": "/pxc-cluster/cluster4/10.0.5.3/ipaddr",
-            "value": "10.0.5.3",
-            "modifiedIndex": 26420,
-            "createdIndex": 26420
-          },
-          {
-            "key": "/pxc-cluster/cluster4/10.0.5.3/hostname",
-            "value": "cfb29833f1d6",
-            "modifiedIndex": 26421,
-            "createdIndex": 26421
-          }
-        ],
-        "modifiedIndex": 26420,
-        "createdIndex": 26420
-      }
-    ],
-    "modifiedIndex": 19600,
-    "createdIndex": 19600
-  }
-}
-```
-
-Currently there is no automatic cleanup for the discovery service registry. You can remove all entries using
-`curl http://$ETCD_HOST/v2/keys/pxc-cluster/$CLUSTER_NAME?recursive=true -XDELETE`.
-
-Starting a discovery service
---------------------------
-
-For the full documentation, please check https://coreos.com/etcd/docs/latest/docker_guide.html.
-
-A simple script to start 1-node etcd (assuming `ETCD_HOST` variable is defined) is:
+Example service with swarm:
 
 ```
-ETCD_HOST=${ETCD_HOST:-10.20.2.4:2379}
-docker run -d -v /usr/share/ca-certificates/:/etc/ssl/certs -p 4001:4001 -p 2380:2380 -p 2379:2379 \
- --name etcd quay.io/coreos/etcd \
- -name etcd0 \
- -advertise-client-urls http://${ETCD_HOST}:2379,http://${ETCD_HOST}:4001 \
- -listen-client-urls http://0.0.0.0:2379,http://0.0.0.0:4001 \
- -initial-advertise-peer-urls http://${ETCD_HOST}:2380 \
- -listen-peer-urls http://0.0.0.0:2380 \
- -initial-cluster-token etcd-cluster-1 \
- -initial-cluster etcd0=http://${ETCD_HOST}:2380 \
- -initial-cluster-state new
-``` 
+NAME=sdelrio/percona-docker
+VERSION=latest
+SERVICE_NAME=sql-cluster
+CLUSTER_NAME=cluster1
+ROOT_PASS=secret
+XDB_PASS=secret
+NETWORK=cluster1_net
 
-Running a Docker overlay network
+docker network create $NETWORK -d overlay
+
+docker service create -p 3306 \
+    --update-parallelism 1 \
+    --update-delay 60s \
+    --network $NETWORK \
+    --name $SERVICE_NAME \
+    -e MYSQL_ROOT_PASSWORD=$ROOT_PASS \
+    -e CLUSTER_NAME=$CLUSTER_NAME \
+    -e SWARM_SERVICE=$SERVICE_NAME \
+    -e XTRABACKUP_PASSWORD=$XDB_PASS \
+    $NAME:$VERSION
+```
+
 ------------------------------
 
 The following link is a great introduction with easy steps on how to run a Docker overlay network: http://chunqi.li/2015/11/09/docker-multi-host-networking/
