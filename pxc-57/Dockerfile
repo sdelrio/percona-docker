@@ -6,7 +6,7 @@ RUN groupadd -r mysql && useradd -r -g mysql mysql
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
 		apt-transport-https ca-certificates \
-		pwgen wget \
+		pwgen wget dnsutils \
 	&& rm -rf /var/lib/apt/lists/*
 
 RUN wget https://repo.percona.com/apt/percona-release_0.1-4.jessie_all.deb \
