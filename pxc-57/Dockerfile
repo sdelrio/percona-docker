@@ -53,11 +53,15 @@ RUN chmod a+x /usr/bin/jq
 RUN chmod a+x /usr/bin/clustercheckcron
 RUN chmod a+x /usr/bin/clustercheck
 
-EXPOSE 3306 4567 4568
+EXPOSE 3306 4567 4568 9200
 
 LABEL vendor=Percona
 LABEL com.percona.package="Percona XtraDB Cluster"
 LABEL com.percona.version="5.7"
+
+# (5 + 5) x 3 = 30 secs, if container not started it will fail
+
+HEALTHCHECK --interval=30s --timeout=90s --retries=3 CMD curl --fail http://localhost:9200/ || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 

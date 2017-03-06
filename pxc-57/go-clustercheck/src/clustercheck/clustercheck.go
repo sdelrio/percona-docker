@@ -2,6 +2,7 @@ package main
 
 import (
     "os"
+    "errors"
     "net/http"
     "database/sql"
     _ "github.com/go-sql-driver/mysql"
@@ -34,7 +35,6 @@ var (
 
     var_read_only           = "OFF"
 )
-
 
 // Get Global (status) variable from MySQL
 //
@@ -93,18 +93,18 @@ func getenv(ev_name, fallback string) string {
 
 func log (msg string) {
 
-    os.Stdout.Write([]byte(msg+"\n"))
+    os.Stdout.Write([]byte("[CLUSTERCHECK] " + msg + "\n"))
 
 }
 
 // Check MySQL Percona cluster state
 //
-// Parameters:
+// Return:
 //
-// - w: Http response writer
-// - r: http request
+// - nil: No errors
+// - err: error content
 
-func check_mysql(w http.ResponseWriter, r *http.Request) {
+func check_mysql() error {
     var (
         wsrep_local_state         string
         wsrep_cluster_status      string
@@ -124,8 +124,7 @@ func check_mysql(w http.ResponseWriter, r *http.Request) {
     db, err := sql.Open("mysql", sql_user + ":" + sql_pass + "@tcp(" + db_host + ")/mysql")
 
     if err != nil {
-        returnCode503msg(w, r, err.Error())
-        return
+        return err
     }
     defer db.Close()
 
@@ -134,25 +133,19 @@ func check_mysql(w http.ResponseWriter, r *http.Request) {
     err = db.Ping()
 
     if err != nil {
-        log(err.Error())
-        returnCode503msg(w, r, err.Error())
-        return
+        return err
     }
 
     wsrep_local_state, err = getglobalvar(db, "wsrep_local_state", STATUS)
 
     if err != nil {
-        log(err.Error())
-        returnCode503msg(w, r, err.Error())
-        return
+        return err
     }
 
     wsrep_cluster_status, err = getglobalvar(db, "wsrep_cluster_status", STATUS)
 
     if err != nil {
-        log(err.Error())
-        returnCode503msg(w, r, err.Error())
-        return
+        return err
     }
 
     if (wsrep_cluster_status == "Primary" && wsrep_local_state == STATE_SYNCED) ||
@@ -161,23 +154,18 @@ func check_mysql(w http.ResponseWriter, r *http.Request) {
         if !available_when_read_only { // If not available when read only check if MySQL is on readonly
             var_read_only, err = getglobalvar(db, "read_only", NOSTATUS)
             if err != nil {
-                log(err.Error())
-                returnCode503msg(w, r, err.Error())
-                return
+                return err
             }
             if var_read_only == "ON" {
-                log(err_ro)
-                returnCode503msg(w, r, err_ro)
-                return
+                return errors.New(err_ro)
             }
         } // read_only = "OFF"
 
         // Percona XtraDB Cluster node local state is 'Synced' => return HTTP 200
 
-        log(ok_msg)
-        returnCode200msg(w, r, ok_msg )
+        return nil
     }
-
+    return errors.New("Not ready")
 }
 
 // Send code 503 http service unavaliable and write msg
@@ -208,6 +196,19 @@ func returnCode200msg(w http.ResponseWriter, r *http.Request, msg string) {
     w.Write([]byte(msg + "\n\r"))
 }
 
+// Main http handler
+
+func clustercheck(w http.ResponseWriter, r *http.Request) {
+    if err := check_mysql(); err != nil {
+        log(err.Error())
+        http.Error(w, err.Error(), 503)
+    } else {
+        log(ok_msg)
+        returnCode200msg(w, r, ok_msg)
+    }
+
+}
+
 // Main program entrypoint
 
 func main() {
@@ -226,7 +227,7 @@ func main() {
     } else {
 
         mux := http.NewServeMux()
-        mux.HandleFunc("/", check_mysql)
+        mux.HandleFunc("/", clustercheck)
 
         // Port to listen
 
