@@ -93,7 +93,7 @@ func getenv(ev_name, fallback string) string {
 //
 // - msg: String to write to log
 
-func log (msg string) {
+func log(msg string) {
 
     t := time.Now()
     os.Stdout.Write([]byte( t.Format(time.RFC3339Nano) + "[CLUSTERCHECK] " + msg + "\n"))
@@ -141,8 +141,8 @@ func check_mysql() error {
             return err
         }
 
-        log("Connection sleep 5s")
         time.Sleep(5 * time.Second)
+        log("Connection sleep 5s")
     }
 
     db, err := sql.Open("mysql", sql_user + ":" + sql_pass + "@tcp(" + db_host + ")/mysql")
