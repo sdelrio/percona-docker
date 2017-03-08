@@ -128,7 +128,7 @@ func check_mysql() error {
     maxretries := 10
 
     for {
-        conn, err := net.Dial("tcp", db_host )
+        conn, err := net.DialTimeout("tcp", db_host, 2 * time.Second )
         if err == nil {
             log("Connection "+ db_host + " Online")
             conn.Close()
@@ -142,7 +142,7 @@ func check_mysql() error {
         }
 
         log("Connection sleep 5s")
-        time.Sleep(5000 * time.Millisecond)
+        time.Sleep(5 * time.Second)
     }
 
     db, err := sql.Open("mysql", sql_user + ":" + sql_pass + "@tcp(" + db_host + ")/mysql")
