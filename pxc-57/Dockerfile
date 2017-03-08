@@ -61,7 +61,7 @@ LABEL com.percona.version="5.7"
 
 # (5 + 5) x 3 = 30 secs, if container not started it will fail
 
-HEALTHCHECK --interval=30s --timeout=90s --retries=3 CMD curl --fail http://localhost:9200/ || exit 1
+HEALTHCHECK --interval=5s --timeout=120s --retries=24 CMD curl --fail http://localhost:9200/ || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 

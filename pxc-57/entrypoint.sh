@@ -22,6 +22,10 @@ fi
                 fi
 		mkdir -p "$DATADIR"
 
+    # Listen on 9200 for cluster check
+		echo "Running --initialize-clustercheck on port 9200"
+    /usr/bin/clustercheck &
+    CLUSTER_CHECK_PID=$!
 		echo "Running --initialize-insecure on $DATADIR"
 		ls -lah $DATADIR
 		mysqld --initialize-insecure
@@ -31,7 +35,6 @@ fi
 
 		mysqld --user=mysql --datadir="$DATADIR" --skip-networking &
 		pid="$!"
-
 		mysql=( mysql --protocol=socket -uroot )
 
 		for i in {30..0}; do
@@ -39,10 +42,17 @@ fi
 				break
 			fi
 			echo 'MySQL init process in progress...'
+            echo "Checking -- clustercheck on port 9200"
+            if curl --fail -s http://localhost:9200; then
+                echo "OK 200 port 9200"
+            else
+                echo "Err 503 port 9200"
+            fi
 			sleep 1
 		done
 		if [ "$i" = 0 ]; then
 			echo >&2 'MySQL init process failed.'
+            kill $CLUSTER_CHECK_PID
 			exit 1
 		fi
 
@@ -127,8 +137,5 @@ echo "Joining cluster $cluster_join"
 set -e
 
 fi
-# Listen on 9200 for cluster check
-/usr/bin/clustercheck &
 #--log-error=${DATADIR}error.log
 exec mysqld --user=mysql --wsrep_cluster_name=$CLUSTER_NAME --wsrep_cluster_address="gcomm://$cluster_join" --wsrep_sst_method=xtrabackup-v2 --wsrep_sst_auth="xtrabackup:$XTRABACKUP_PASSWORD" --wsrep_node_address="$ipaddr" $CMDARG
-

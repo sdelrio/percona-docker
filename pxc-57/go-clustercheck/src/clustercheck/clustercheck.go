@@ -2,6 +2,8 @@ package main
 
 import (
     "os"
+    "net"
+    "time"
     "errors"
     "net/http"
     "database/sql"
@@ -93,7 +95,8 @@ func getenv(ev_name, fallback string) string {
 
 func log (msg string) {
 
-    os.Stdout.Write([]byte("[CLUSTERCHECK] " + msg + "\n"))
+    t := time.Now()
+    os.Stdout.Write([]byte( t.Format(time.RFC3339Nano) + "[CLUSTERCHECK] " + msg + "\n"))
 
 }
 
@@ -121,30 +124,68 @@ func check_mysql() error {
     //err_file                := getenv("ERR_FILE", "/dev/null")
     available_when_read_only:= getenv("AVAILABLE_WHEN_READONLY", "-1") == "0"
 
+    attempt    := 1
+    maxretries := 10
+
+    for {
+        conn, err := net.Dial("tcp", db_host )
+        if err == nil {
+            log("Connection "+ db_host + " Online")
+            conn.Close()
+            break
+        }
+        attempt++
+
+        if attempt > maxretries {
+            log("Connection retry limit reached")
+            return err
+        }
+
+        log("Connection sleep 5s")
+        time.Sleep(5000 * time.Millisecond)
+    }
+
     db, err := sql.Open("mysql", sql_user + ":" + sql_pass + "@tcp(" + db_host + ")/mysql")
 
     if err != nil {
+        log("sql.Open")
         return err
     }
     defer db.Close()
 
     // Test database connection
 
-    err = db.Ping()
+    attempt    = 1
+    maxretries = 10
 
-    if err != nil {
-        return err
+    for {
+        err = db.Ping()
+        if err == nil {
+            break
+        }
+        attempt++
+
+        if attempt > maxretries {
+            // [CLUSTERCHECK] dial tcp 127.0.0.1:3306: getsockopt: connection refused
+            log("db.ping retry limit reached")
+            return err
+        }
+
+        log("db.ping sleep 1s")
+        time.Sleep(1000 * time.Millisecond)
     }
 
     wsrep_local_state, err = getglobalvar(db, "wsrep_local_state", STATUS)
 
     if err != nil {
+        log("get wsrep_local_state")
         return err
     }
 
     wsrep_cluster_status, err = getglobalvar(db, "wsrep_cluster_status", STATUS)
 
     if err != nil {
+        log("get wsrep_cluster_status")
         return err
     }
 
@@ -154,9 +195,11 @@ func check_mysql() error {
         if !available_when_read_only { // If not available when read only check if MySQL is on readonly
             var_read_only, err = getglobalvar(db, "read_only", NOSTATUS)
             if err != nil {
+                log("get read_only")
                 return err
             }
             if var_read_only == "ON" {
+                log(err_ro)
                 return errors.New(err_ro)
             }
         } // read_only = "OFF"
@@ -165,6 +208,7 @@ func check_mysql() error {
 
         return nil
     }
+    log("Not ready")
     return errors.New("Not ready")
 }
 
@@ -200,13 +244,12 @@ func returnCode200msg(w http.ResponseWriter, r *http.Request, msg string) {
 
 func clustercheck(w http.ResponseWriter, r *http.Request) {
     if err := check_mysql(); err != nil {
-        log(err.Error())
+        log("Err 503: " + err.Error())
         http.Error(w, err.Error(), 503)
     } else {
         log(ok_msg)
         returnCode200msg(w, r, ok_msg)
     }
-
 }
 
 // Main program entrypoint
